@@ -44,15 +44,20 @@ function Optimize-PathString {
         $NormalizedPath = Get-NormalizedPath $PathEntry
         $Status = "OK"
         
-        # 1. Verificação de Duplicidade
-        if ($UniquePaths.ContainsKey($NormalizedPath)) {
+        # 1. Verificação de Variável Composta (contém %VARIAVEL% ou $VARIAVEL)
+        if ($PathEntry -match '%[^%]+%|\$[A-Z_][A-Z0-9_]*') {
+            $Status = "Ignorado"
+            # Não adiciona ao CleanedPaths, mas adiciona ao relatório
+        }
+        # 2. Verificação de Duplicidade
+        elseif ($UniquePaths.ContainsKey($NormalizedPath)) {
             $Status = "Duplicado"
         }
         else {
             # Marca como único para rastreamento
             $UniquePaths.Add($NormalizedPath, $true)
 
-            # 2. Verificação de Existência (Apenas diretórios são considerados válidos)
+            # 3. Verificação de Existência (Apenas diretórios são considerados válidos)
             if (Test-Path -Path $PathEntry -PathType Container) {
                 $CleanedPaths += $PathEntry
                 $Status = "OK"
