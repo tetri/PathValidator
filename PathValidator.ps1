@@ -29,7 +29,8 @@ function Get-NormalizedPath {
 function Optimize-PathString {
     param(
         [string]$RawPath,
-        [string]$ScopeName
+        [string]$ScopeName,
+        [hashtable]$SystemPaths = @{}  # Caminhos do Sistema para detectar duplicatas
     )
     
     $Paths = $RawPath.Split($Separator) | ForEach-Object { $_.Trim() } | Where-Object { $_ }
@@ -49,7 +50,12 @@ function Optimize-PathString {
             $Status = "Ignorado"
             # Não adiciona ao CleanedPaths, mas adiciona ao relatório
         }
-        # 2. Verificação de Duplicidade
+        # 2. Verificação de Duplicidade com PATH do Sistema (apenas para PATH do Usuário)
+        elseif ($SystemPaths.Count -gt 0 -and $SystemPaths.ContainsKey($NormalizedPath)) {
+            $Status = "Duplicada em Sistema"
+            # Não adiciona ao CleanedPaths quando em modo Fix
+        }
+        # 3. Verificação de Duplicidade no mesmo escopo
         elseif ($UniquePaths.ContainsKey($NormalizedPath)) {
             $Status = "Duplicado"
         }
@@ -57,7 +63,7 @@ function Optimize-PathString {
             # Marca como único para rastreamento
             $UniquePaths.Add($NormalizedPath, $true)
 
-            # 3. Verificação de Existência (Apenas diretórios são considerados válidos)
+            # 4. Verificação de Existência (Apenas diretórios são considerados válidos)
             if (Test-Path -Path $PathEntry -PathType Container) {
                 $CleanedPaths += $PathEntry
                 $Status = "OK"
@@ -98,11 +104,26 @@ Write-Host "===================================================" -ForegroundColo
 $UserPath = (Get-ItemProperty -Path $UserPathKey -ErrorAction SilentlyContinue).Path
 $SystemPath = (Get-ItemProperty -Path $SystemPathKey -ErrorAction SilentlyContinue).Path
 
-# 2. Validação e Geração dos Novos PATHs (Limpos)
-$NewUserPath = Optimize-PathString -RawPath $UserPath -ScopeName "Usuario (HKCU)"
-$NewSystemPath = Optimize-PathString -RawPath $SystemPath -ScopeName "Sistema (HKLM)"
+# 2. Primeiro, processa o PATH do Sistema para criar um índice de caminhos
+Write-Host "`n[INFO] Processando PATH do Sistema primeiro para detectar duplicatas..." -ForegroundColor Cyan
+$SystemPathsNormalized = @{}
+if ($SystemPath) {
+    $SystemPath.Split($Separator) | ForEach-Object { 
+        $trimmed = $_.Trim()
+        if ($trimmed) {
+            $normalized = Get-NormalizedPath $trimmed
+            if (-not $SystemPathsNormalized.ContainsKey($normalized)) {
+                $SystemPathsNormalized.Add($normalized, $true)
+            }
+        }
+    }
+}
 
-# 3. Aplicação das Mudanças (Modo --Fix)
+# 3. Validação e Geração dos Novos PATHs (Limpos)
+$NewSystemPath = Optimize-PathString -RawPath $SystemPath -ScopeName "Sistema (HKLM)"
+$NewUserPath = Optimize-PathString -RawPath $UserPath -ScopeName "Usuario (HKCU)" -SystemPaths $SystemPathsNormalized
+
+# 4. Aplicação das Mudanças (Modo --Fix)
 if ($Fix) {
     Write-Host "`n===================================================" -ForegroundColor White
     Write-Host "| EXECUTANDO AJUSTES (REMOCAO) |" -ForegroundColor Yellow
